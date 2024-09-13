@@ -35,7 +35,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
+            type=sha,format=long
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/deploy' }}
 
       - name: Build and push Docker image
