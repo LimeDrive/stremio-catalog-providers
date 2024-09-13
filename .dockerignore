@@ -1,4 +1,5 @@
 .git
+.github
 db
 log
 node_modules
