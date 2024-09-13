@@ -16,9 +16,4 @@ COPY . .
 ENV PORT=7000
 EXPOSE 7000
 
-RUN useradd -r -u 1001 -g node appuser
-RUN chown -R appuser:node /usr/src/app
-
-USER appuser
-
 CMD ["node", "index.js"]
