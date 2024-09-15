@@ -1,5 +1,5 @@
 const log = require('../helpers/logger');
-const { getMetadataCache, getEpisodeCache, setEpisodeCache } = require('../helpers/cache');
+const { getMetadataCache, getEpisodeCache } = require('../helpers/cache');
 const { fetchAndStoreEpisodes, fetchData } = require('../api/tmdb');
 
 function createShareSlug(contentType, contentTitle, imdbId) {
@@ -23,24 +23,24 @@ async function buildMetaObject(type, id) {
 
     const ensureEpisodesInCache = async (seriesId) => {
         const cachedEpisodes = await getEpisodeCache(seriesId);
-    
+
         let seasonsInCache = new Set();
-    
+
         if (cachedEpisodes && cachedEpisodes.length > 0) {
             log.debug(`Found ${cachedEpisodes.length} episodes in cache for series ID: ${seriesId}`);
-    
+
             cachedEpisodes.forEach((episode) => seasonsInCache.add(episode.season_number));
-    
+
             const seriesDetails = await fetchData(`/tv/${seriesId}`, {}, process.env.TMDB_API_KEY);
             const currentNumberOfSeasons = seriesDetails.number_of_seasons;
-    
+
             let missingSeasons = [];
             for (let i = 1; i <= currentNumberOfSeasons; i++) {
                 if (!seasonsInCache.has(i)) {
                     missingSeasons.push(i);
                 }
             }
-    
+
             if (missingSeasons.length > 0) {
                 log.info(`Fetching missing seasons: ${missingSeasons.join(', ')}`);
                 
@@ -51,13 +51,13 @@ async function buildMetaObject(type, id) {
                 log.info(`Fetching only the latest season: Season ${currentNumberOfSeasons}`);
                 await fetchAndStoreEpisodes(seriesId, process.env.TMDB_API_KEY, currentNumberOfSeasons);
             }
-    
+
             return await getEpisodeCache(seriesId);
         } else {
             log.info(`Cache is empty or incomplete, fetching all episodes.`);
             await fetchAndStoreEpisodes(seriesId, process.env.TMDB_API_KEY);
         }
-    
+
         return await getEpisodeCache(seriesId);
     };
     
@@ -80,13 +80,10 @@ async function buildMetaObject(type, id) {
         }));
     }
     
-    const videos = type === 'series' ? await buildSeriesVideos(cleanedId) : [{
-        id: cleanedId,
-        title: cachedData.title || 'No Title',
-        released: cachedData.release_date ? new Date(cachedData.release_date).toISOString() : null,
-        thumbnail: cachedData.backdrop_path ? `https://image.tmdb.org/t/p/w500${cachedData.backdrop_path}` : null,
-        overview: cachedData.overview || 'No Overview'
-    }];
+    let videos = [];
+    if (type === 'series') {
+        videos = await buildSeriesVideos(cleanedId);
+    }
 
     const metaObj = {
         id: `${cachedData.imdb_id}`,
@@ -100,7 +97,7 @@ async function buildMetaObject(type, id) {
         language: cachedData.original_language,
         country: cachedData.production_countries ? cachedData.production_countries.split(',')[0] : null,
         trailers: cachedData.video_key ? [{ source: cachedData.video_key, type: 'Trailer' }] : [],
-        videos,
+        ...(type === 'series' && { videos }), // Inclut 'videos' seulement si c'est une série
         links: [
             ...cachedData.genres ? cachedData.genres.split(',').map(genre => ({
                 name: genre,

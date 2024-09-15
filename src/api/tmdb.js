@@ -1,9 +1,9 @@
 const axios = require('axios');
-const queue = require('../helpers/queue');
+const log = require('../helpers/logger');
+const addToQueue = require('../helpers/bottleneck');
 const { providersDb, genresDb, catalogDb } = require('../helpers/db');
 const { TMDB_BEARER_TOKEN, TMDB_LANGUAGE, TMDB_WATCH_REGION } = process.env;
 const { getCache, setCache, getMetadataCache, setMetadataCache, setEpisodeCache } = require('../helpers/cache');
-const log = require('../helpers/logger');
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -15,7 +15,7 @@ const makeRequest = (url, tmdbApiKey = null) => {
     }
 
     return new Promise((resolve, reject) => {
-        queue.push({
+        addToQueue({
             fn: () => axios.get(url, { headers })
                 .then(response => {
                     log.debug(`API request successful for URL: ${url}`);
@@ -122,41 +122,12 @@ const fetchData = async (endpoint, params = {}, tmdbApiKey = null, providerId = 
     return data;
 };
 
-const fetchContentDetailsInBatches = async (contentList, mediaType, tmdbApiKey = null) => {
-    const results = [];
-
-    const processBatch = async (batch) => {
-        return new Promise((resolve, reject) => {
-            const batchResults = [];
-
-            batch.forEach((contentId) => {
-                queue.push({
-                    fn: async () => {
-                        const data = await fetchContentDetails(contentId, mediaType, tmdbApiKey);
-                        batchResults.push(data);
-                    }
-                });
-            });
-
-            queue.drain(() => {
-                resolve(batchResults);
-            });
-        });
-    };
-
-    for (let i = 0; i < contentList.length; i += 20) {
-        const batch = contentList.slice(i, i + 20);
-        const batchResult = await processBatch(batch);
-        results.push(...batchResult);
-    }
-
-    return results;
-};
-
 const fetchContentDetails = async (contentId, mediaType, tmdbApiKey = null) => {
     const endpointType = mediaType === 'series' ? 'tv' : 'movie';
     const endpoint = `/${endpointType}/${contentId}`;
     const fetchWithoutLanguageFallback = process.env.TMDB_FETCH_TRAILER_TWITHOUT_LANGUAGE_FALLBACK === 'true';
+    
+    let url = null;
 
     const fetchDetails = async (includeLanguage = true) => {
         const params = new URLSearchParams({ append_to_response: 'videos,credits,external_ids' });
@@ -166,7 +137,7 @@ const fetchContentDetails = async (contentId, mediaType, tmdbApiKey = null) => {
         if (tmdbApiKey) {
             params.append('api_key', tmdbApiKey);
         }
-        const url = `${TMDB_BASE_URL}${endpoint}?${params.toString()}`;
+        url = `${TMDB_BASE_URL}${endpoint}?${params.toString()}`;
         log.debug(`Fetching content details for ID: ${contentId}, Type: ${mediaType}, URL: ${url}`);
         return await makeRequest(url, tmdbApiKey);
     };
@@ -176,7 +147,7 @@ const fetchContentDetails = async (contentId, mediaType, tmdbApiKey = null) => {
         if (tmdbApiKey) {
             params.append('api_key', tmdbApiKey);
         }
-        const url = `${TMDB_BASE_URL}${endpoint}?${params.toString()}`;
+        url = `${TMDB_BASE_URL}${endpoint}?${params.toString()}`;
         log.debug(`Fetching videos without language for ID: ${contentId}, URL: ${url}`);
         const videoData = await makeRequest(url, tmdbApiKey);
         return videoData.videos;
@@ -398,7 +369,9 @@ const discoverContent = async (type, watchProviders = [], ageRange = null, sortB
 
     const uniqueResults = Array.from(new Map(combinedResults.map(item => [item.id, item])).values());
 
-    await fetchContentDetailsInBatches(uniqueResults.map(item => item.id), type, tmdbApiKey);
+    for (const item of uniqueResults) {
+        await fetchContentDetails(item.id, type, tmdbApiKey);
+    }
 
     return {
         ...results[0],
@@ -468,11 +441,14 @@ const fetchGenres = async (type, language, tmdbApiKey = TMDB_API_KEY) => {
     const endpoint = `/genre/${mediaType}/list`;
 
     try {
-        const response = await axios.get(`${TMDB_BASE_URL}${endpoint}`, {
-            params: { api_key: tmdbApiKey, language }
-        });
+        const params = {
+            language,
+            api_key: tmdbApiKey
+        };
+
+        const genresData = await fetchData(endpoint, params, tmdbApiKey);
         log.debug(`Genres retrieved for ${type} (${language})`);
-        return response.data.genres;
+        return genresData.genres;
     } catch (error) {
         log.error(`Error fetching genres from TMDB: ${error.message}`);
         throw error;
