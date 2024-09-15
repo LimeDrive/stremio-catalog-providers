@@ -43,6 +43,16 @@ services:
       # For example, '3d' means logs will be kept for 3 days before being deleted
       # If not specified, the default value is '3d'
       LOG_INTERVAL_DELETION: 3d
+
+      # Enable fallback to fetch trailers without language filtering
+      # Ensures a trailer is retrieved even if it's not available in the specified language
+      # For now, this may slow down the catalog retrieval on the first request
+      TMDB_FETCH_TRAILER_TWITHOUT_LANGUAGE_FALLBACK=false
+    volumes:
+      # Defines a volume for storing data from the container on the host.
+      # Replace /your/path/to/* with the path of your choice on the host where you want to store the data.
+      - /your/path/to/db:/usr/src/app/db
+      - /your/path/to/log:/usr/src/app/log
 ```
 
 ## Build
